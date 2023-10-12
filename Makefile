@@ -1,5 +1,5 @@
-multicalc: build build/multicalc.o build/system_helper.o
-	cl65 build/multicalc.o build/system_helper.o -o bin/multicalc.prg
+multicalc: build build/multicalc.o build/system_helper.o build/FP.o
+	cl65 build/multicalc.o build/system_helper.o build/FP.o -o bin/multicalc.prg
 
 build/multicalc.o: src/multicalc.c 
 	cl65 -c src/multicalc.c 
@@ -8,6 +8,10 @@ build/multicalc.o: src/multicalc.c
 build/system_helper.o: src/modules/system_helper.c
 	cl65 -c src/modules/system_helper.c 
 	@mv src/modules/system_helper.o build/system_helper.o
+
+build/FP.o: src/modules/FP.c
+	cl65 -c src/modules/FP.c 
+	@mv src/modules/FP.o build/FP.o
 
 build:
 	@mkdir -p build
