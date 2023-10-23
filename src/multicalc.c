@@ -24,8 +24,8 @@ int main ( void )
       floatNumber[ MANTISSA_HIGH ], 
       floatNumber[ EXPONENT ] );
    printf( 
-      "MantissaL=%d MantissaH=%d Exponent=%d\n",
-      floatNumber [ MANTISSA_LOW ], 
+      "MantissaL=%u MantissaH=%d Exponent=%d\n",
+      floatNumber[ MANTISSA_LOW ], 
       floatNumber[ MANTISSA_HIGH ],
       floatNumber[ EXPONENT ] );
 
