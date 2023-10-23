@@ -34,30 +34,52 @@ Float FP_createFromString( const char * decimalStr )
 
     while ( ( *charPtr >= '0' && *charPtr <= '9' ) || *charPtr == '.' )
     {
-        if ( *charPtr == '.' ) charPtr++;
+        int curcentDigit = ( *charPtr - '0' );
+        char isMantissaLowOverflowed = ( ( mantissaLow / 10000 ) >= 1 ) || 
+                ( ( _16_BIT_UNSIGNED_MAX - mantissaLow ) < curcentDigit );
+        char isMantissaHighOverflowed = ( _16_BIT_SIGNED_MAX - mantissaLow ) <  curcentDigit;   
 
-        if ( !isCarry && mantissaHigh <= _16_BIT_SIGNED_MAX )
+        if ( *charPtr == '.' )
+        { 
+            charPtr++;
+            continue;
+        }
+
+        if ( !isCarry )
         {
-            if ( (mantissaHigh * 10 + ( *charPtr - '0' )) > _16_BIT_SIGNED_MAX )
+            if ( isMantissaLowOverflowed )
             {
+                puts( "overflow1" );
                 isCarry = 1;
-                mantissaLow = ( *charPtr - '0' );
+                mantissaHigh =  mantissaLow / 10000;
+                mantissaLow = ( mantissaLow % 10000 ) * 10 + curcentDigit; 
             }
             else
             {
-                mantissaHigh = mantissaHigh * 10 + ( *charPtr - '0' );
+                mantissaLow = mantissaLow * 10 + curcentDigit;
             }
-            
-            charPtr++;
         }
         else
         {
-            mantissaLow = mantissaLow * 10 + ( *charPtr - '0' );
-            charPtr++;
+            if ( ( ( ( mantissaHigh * 10 ) + mantissaHigh / 10000 ) > _16_BIT_SIGNED_MAX ) || 
+                ( _16_BIT_UNSIGNED_MAX - mantissaLow ) < curcentDigit ) 
+            {
+                puts("overflow2");
+                result[ MANTISSA_HIGH ] = 0xFFFF;
+                result[ MANTISSA_LOW ] = 0xFFFF; 
+                result[ EXPONENT ] = 0xFFFF;
+
+                return result;
+            }
+            
+            mantissaHigh = ( mantissaHigh * 10 ) + mantissaLow / 10000;
+            mantissaLow = ( mantissaLow % 10000 ) * 10 + curcentDigit; 
         }    
+
+        charPtr++;
     }
 
-    if (isNegative)
+    if ( isNegative )
     {
         mantissaHigh |= 0x8000;
     }
@@ -94,26 +116,26 @@ char* FP_toString( const Float value )
     {
         mantissaHigh &= 0x7FFF;
         
-        if (mantissaLow > 0)
+        if (mantissaHigh > 0)
         { 
-            snprintf( mantissaStr, sizeof( mantissaStr ), "-%d%d", mantissaHigh, mantissaLow );
+            snprintf( mantissaStr, sizeof( mantissaStr ), "-%u%u", mantissaHigh, mantissaLow );
         }
         else
         {
-            snprintf( mantissaStr, sizeof( mantissaStr ), "-%d", mantissaHigh );
+            snprintf( mantissaStr, sizeof( mantissaStr ), "-%u", mantissaLow );
         }
         
         mantissaStrLen = strlen( mantissaStr ) - 1;
     }
     else
     {
-        if (mantissaLow > 0)
+        if (mantissaHigh > 0)
         { 
-            snprintf( mantissaStr, sizeof( mantissaStr ), "%d%d", mantissaHigh, mantissaLow );
+            snprintf( mantissaStr, sizeof( mantissaStr ), "%u%u", mantissaHigh, mantissaLow );
         }
         else
         {
-            snprintf( mantissaStr, sizeof( mantissaStr ), "%d", mantissaHigh );
+            snprintf( mantissaStr, sizeof( mantissaStr ), "%u", mantissaLow );
         }
 
          mantissaStrLen = strlen( mantissaStr );
