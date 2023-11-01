@@ -11,19 +11,24 @@ Float FP_createFromString( const char * decimalStr )
     uint16_t mantissaHigh = 0;
     uint16_t exponent = 0;
     int mantissaPosition = 0;
+    char pointIndex = 0;
     char index = 0;
     char isNegative = 0;
     char isCarry = 0;
     char decimalStrLen = strlen( decimalStr );
+    char numberOfTrailingZeros = 0;
 
     const char * charPtr = strchr( decimalStr, '.' );
-    index = ( int )( charPtr - decimalStr );
+    pointIndex = ( int )( charPtr - decimalStr );
+    
+    numberOfTrailingZeros = countTrailingZeros( decimalStr );
     
     if ( charPtr )
     {
-        mantissaPosition = index - decimalStrLen + 2;
+        mantissaPosition = pointIndex - decimalStrLen + 2;
     } 
 
+    mantissaPosition += numberOfTrailingZeros;
     charPtr = decimalStr;
 
     if ( *charPtr == '-' )
@@ -35,9 +40,13 @@ Float FP_createFromString( const char * decimalStr )
     while ( ( *charPtr >= '0' && *charPtr <= '9' ) || *charPtr == '.' )
     {
         int curcentDigit = ( *charPtr - '0' );
+        
         char isMantissaLowOverflowed = ( ( mantissaLow / 10000 ) >= 1 ) || 
                 ( ( _16_BIT_UNSIGNED_MAX - mantissaLow ) < curcentDigit );
-        char isMantissaHighOverflowed = ( _16_BIT_SIGNED_MAX - mantissaLow ) <  curcentDigit;   
+        
+        char isMantissaOverflowed = ( ( ( mantissaHigh * 10 ) + mantissaLow / 10000 ) > _16_BIT_SIGNED_MAX ) || 
+                 ( ( mantissaLow % 10000 ) >= (_16_BIT_UNSIGNED_MAX_P ) ) ||
+                ( ( _16_BIT_UNSIGNED_MAX - ( mantissaLow % 10000 ) * 10) < curcentDigit ); 
 
         if ( *charPtr == '.' )
         { 
@@ -49,7 +58,6 @@ Float FP_createFromString( const char * decimalStr )
         {
             if ( isMantissaLowOverflowed )
             {
-                puts( "overflow1" );
                 isCarry = 1;
                 mantissaHigh =  mantissaLow / 10000;
                 mantissaLow = ( mantissaLow % 10000 ) * 10 + curcentDigit; 
@@ -61,10 +69,8 @@ Float FP_createFromString( const char * decimalStr )
         }
         else
         {
-            if ( ( ( ( mantissaHigh * 10 ) + mantissaHigh / 10000 ) > _16_BIT_SIGNED_MAX ) || 
-                ( _16_BIT_UNSIGNED_MAX - mantissaLow ) < curcentDigit ) 
+            if ( isMantissaOverflowed )
             {
-                puts("overflow2");
                 result[ MANTISSA_HIGH ] = 0xFFFF;
                 result[ MANTISSA_LOW ] = 0xFFFF; 
                 result[ EXPONENT ] = 0xFFFF;
@@ -77,6 +83,29 @@ Float FP_createFromString( const char * decimalStr )
         }    
 
         charPtr++;
+        
+        if ( ++index >= decimalStrLen ) break;
+    }
+
+    if ( numberOfTrailingZeros > 0 )
+    {
+        for ( index = 0; index < numberOfTrailingZeros; index++ )
+        {
+            char remainder = 0;
+            
+            if ( mantissaHigh > 0 )
+            {
+                remainder = mantissaHigh % 10;
+                mantissaHigh /= 10;
+            }
+
+            mantissaLow /= 10;
+
+            if ( remainder > 0 )
+            {
+                mantissaLow += remainder * 10000;
+            }
+        }
     }
 
     if ( isNegative )
@@ -106,6 +135,8 @@ char* FP_toString( const Float value )
     char mantissaStrLen = 0;
     char wholePartLen = 0;
     char fractionPartLen = 0;
+    char isEUsed = 0;
+    char eCorection = 0;
 
     char mantissaStr[ MAX_STRING_LENGTH ] =  { '\0' };
     char decimalStrWholePart[ MAX_STRING_LENGTH ] = { '\0' };
@@ -144,9 +175,26 @@ char* FP_toString( const Float value )
     mantissaStrLen = strlen( mantissaStr );
     pointPosition = mantissaStrLen + exponent;
     
-    if ( pointPosition == mantissaStrLen )
+    if ( pointPosition > mantissaStrLen )
     {
-         wholePartLen = mantissaStrLen;
+        if ( isNegative )
+        {
+            eCorection = mantissaStrLen - 1;
+            wholePartLen = 2;
+            pointPosition = 2;
+            isEUsed = 1;
+        }
+        else
+        {
+            eCorection = mantissaStrLen;
+            wholePartLen = 1;
+            pointPosition = 1;
+            isEUsed = 1;
+        }
+    }
+    else if ( pointPosition == mantissaStrLen )
+    {
+        wholePartLen = mantissaStrLen;
     }
     else
     {
@@ -157,15 +205,63 @@ char* FP_toString( const Float value )
     fractionPartLen = mantissaStrLen - wholePartLen;
     strncpy( decimalStrFractionPart, mantissaStr + pointPosition, fractionPartLen );
     
-    if ( fractionPartLen > 0 )
+    if ( fractionPartLen > 0 && !isEUsed)
     {
-        snprintf(   resultString, sizeof( mantissaStr ), "%s.%s", decimalStrWholePart, decimalStrFractionPart );
+        snprintf(
+            resultString, 
+            sizeof( mantissaStr ), 
+            "%s.%s", 
+            decimalStrWholePart, 
+            decimalStrFractionPart );
+    }
+    else if ( isEUsed )
+    {
+        snprintf( 
+            resultString, 
+            sizeof( mantissaStr ), 
+            "%s.%se%d", 
+            decimalStrWholePart, 
+            decimalStrFractionPart, 
+            exponent + eCorection - 1 );
     }
     else
     {
-        snprintf(   resultString, sizeof( mantissaStr ), "%s", decimalStrWholePart );
+        snprintf( 
+            resultString, 
+            sizeof( mantissaStr ), 
+            "%s", 
+            decimalStrWholePart );
     }
     
-
     return strdup( resultString );
+}
+
+static int countTrailingZeros( const char * str ) 
+{
+    char count = 0;
+    char i = 0;
+    char length = strlen( str ) - 1;
+
+    char reversedStr[ MAX_STRING_LENGTH ] = { '\0' };
+    
+    for ( i = 0; i < length; i++ ) 
+    {
+        reversedStr[ i ] = str[ length - 1 - i ];
+    }
+
+    reversedStr[ length + 1 ] = '\0';
+    
+    for ( i = 0; i < length; i++ ) 
+    {
+        if ( reversedStr[ i ] == '0' ) 
+        {
+            count++;
+        } 
+        else 
+        {
+            break;  
+        }
+    }
+
+    return count;
 }
