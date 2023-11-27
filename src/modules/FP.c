@@ -1,123 +1,71 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
+#include <conio.h>
 
 #include "FP.h"
 
-Float FP_createFromString( const char * decimalStr )
+int8_t FP_createFromString( const char * decimalStr, Float floatNumber )
 {
-    Float result = ( uint16_t * ) calloc( FP_SIZE, sizeof( uint16_t ) );
-    uint16_t mantissaLow = 0;
-    uint16_t mantissaHigh = 0;
-    uint16_t exponent = 0;
-    int mantissaPosition = 0;
-    char pointIndex = 0;
-    char index = 0;
-    char isNegative = 0;
-    char isCarry = 0;
-    char decimalStrLen = strlen( decimalStr );
-    char numberOfTrailingZeros = 0;
+    uint16_t mantissaLowInt = 0;
+    int16_t mantissaHighInt = 0;
+    uint16_t mantissaLowFraction = 0;
+    int16_t mantissaHighFraction = 0;
+    uint8_t exponentMBF = 0;
+    uint8_t ma4 = 0;
+    uint8_t ma3 = 0;
+    uint8_t ma2 = 0;
+    uint8_t ma1 = 0;
+    uint16_t mantissaLowMBF = 0;
 
-    const char * charPtr = strchr( decimalStr, '.' );
-    pointIndex = ( int )( charPtr - decimalStr );
+    int16_t exponent = 0;
     
-    numberOfTrailingZeros = countTrailingZeros( decimalStr );
+    bool isNegative = determineSign( decimalStr );
+    bool scientific = isScientific( decimalStr);
     
-    if ( charPtr )
+    if ( scientific )
     {
-        mantissaPosition = pointIndex - decimalStrLen + 2;
-    } 
-
-    mantissaPosition += numberOfTrailingZeros;
-    charPtr = decimalStr;
-
-    if ( *charPtr == '-' )
-    {
-        isNegative = 1;
-        charPtr++;
+        return EXIT_FAILURE;
     }
-
-    while ( ( *charPtr >= '0' && *charPtr <= '9' ) || *charPtr == '.' )
+    else
     {
-        int curcentDigit = ( *charPtr - '0' );
+        exponent = calculateExponent( decimalStr );
         
-        char isMantissaLowOverflowed = ( ( mantissaLow / 10000 ) >= 1 ) || 
-                ( ( _16_BIT_UNSIGNED_MAX - mantissaLow ) < curcentDigit );
-        
-        char isMantissaOverflowed = ( ( ( mantissaHigh * 10 ) + mantissaLow / 10000 ) > _16_BIT_SIGNED_MAX ) || 
-                 ( ( mantissaLow % 10000 ) >= (_16_BIT_UNSIGNED_MAX_P ) ) ||
-                ( ( _16_BIT_UNSIGNED_MAX - ( mantissaLow % 10000 ) * 10) < curcentDigit ); 
-
-        if ( *charPtr == '.' )
-        { 
-            charPtr++;
-            continue;
+        if ( parseMantissaInt( decimalStr, &mantissaHighInt, &mantissaLowInt ) == EXIT_FAILURE )
+        {
+            return EXIT_FAILURE;
         }
 
-        if ( !isCarry )
-        {
-            if ( isMantissaLowOverflowed )
-            {
-                isCarry = 1;
-                mantissaHigh =  mantissaLow / 10000;
-                mantissaLow = ( mantissaLow % 10000 ) * 10 + curcentDigit; 
-            }
-            else
-            {
-                mantissaLow = mantissaLow * 10 + curcentDigit;
-            }
-        }
-        else
-        {
-            if ( isMantissaOverflowed )
-            {
-                result[ MANTISSA_HIGH ] = 0xFFFF;
-                result[ MANTISSA_LOW ] = 0xFFFF; 
-                result[ EXPONENT ] = 0xFFFF;
-
-                return result;
-            }
-            
-            mantissaHigh = ( mantissaHigh * 10 ) + mantissaLow / 10000;
-            mantissaLow = ( mantissaLow % 10000 ) * 10 + curcentDigit; 
-        }    
-
-        charPtr++;
-        
-        if ( ++index >= decimalStrLen ) break;
+        // if ( parseMantissaFraction( decimalStr, &mantissaHighFraction, &mantissaLowFraction ) == EXIT_FAILURE )
+        // {
+        //     return EXIT_FAILURE;
+        // }
     }
 
-    if ( numberOfTrailingZeros > 0 )
+    if ( exponent >= 0 )
     {
-        for ( index = 0; index < numberOfTrailingZeros; index++ )
-        {
-            char remainder = 0;
-            
-            if ( mantissaHigh > 0 )
-            {
-                remainder = mantissaHigh % 10;
-                mantissaHigh /= 10;
-            }
-
-            mantissaLow /= 10;
-
-            if ( remainder > 0 )
-            {
-                mantissaLow += remainder * 10000;
-            }
-        }
+        exponentMBF = calculateMBFPositiveExponent( mantissaHighInt, mantissaLowInt );
     }
-
-    if ( isNegative )
+    else
     {
-        mantissaHigh |= 0x8000;
+        return EXIT_FAILURE;
     }
+    
+    printf( "1 [%d][%d]\n", mantissaHighInt, mantissaLowInt );
+    printf( "2 [%04X][%04x]\n", mantissaHighInt, mantissaLowInt );
 
-    result[ EXPONENT ] = mantissaPosition;
-    result[ MANTISSA_HIGH ] = mantissaHigh;
-    result[ MANTISSA_LOW ] = mantissaLow; 
+    printf( "IsNegative[%d]\n", isNegative );
 
-    return result;
+    createMBFInt( mantissaHighInt, mantissaLowInt, isNegative, &ma4, &ma3, &ma2, &ma1 );
+
+    floatNumber[ EXPONENT ] = exponentMBF;
+    floatNumber[ MANTISSA_4 ] = ma4;
+    floatNumber[ MANTISSA_3 ] = ma3;
+    floatNumber[ MANTISSA_2 ] = ma2;
+    floatNumber[ MANTISSA_1 ] = ma1;
+ 
+    return EXIT_SUCCESS;
 }
 
 void FP_delete( Float floatNumber )
@@ -125,143 +73,395 @@ void FP_delete( Float floatNumber )
     free( floatNumber );
 }
 
-char* FP_toString( const Float value )
+int8_t FP_toString( const Float value, char * resultString )
 {
-    char isNegative = value[ MANTISSA_HIGH ] >> 15;
-    uint16_t exponent = value[ EXPONENT ];
-    uint16_t mantissaHigh = value[ MANTISSA_HIGH ];
-    uint16_t mantissaLow = value[ MANTISSA_LOW ];
-    char pointPosition = 0;
-    char mantissaStrLen = 0;
-    char wholePartLen = 0;
-    char fractionPartLen = 0;
-    char isEUsed = 0;
-    char eCorection = 0;
-
-    char mantissaStr[ MAX_STRING_LENGTH ] =  { '\0' };
-    char decimalStrWholePart[ MAX_STRING_LENGTH ] = { '\0' };
-    char decimalStrFractionPart[ MAX_STRING_LENGTH ] = { '\0' };
-    char resultString[ MAX_STRING_LENGTH ] = { '\0' };
-    
-    if ( isNegative )
-    {
-        mantissaHigh &= 0x7FFF;
-        
-        if (mantissaHigh > 0)
-        { 
-            snprintf( mantissaStr, sizeof( mantissaStr ), "-%u%u", mantissaHigh, mantissaLow );
-        }
-        else
-        {
-            snprintf( mantissaStr, sizeof( mantissaStr ), "-%u", mantissaLow );
-        }
-        
-        mantissaStrLen = strlen( mantissaStr ) - 1;
-    }
-    else
-    {
-        if (mantissaHigh > 0)
-        { 
-            snprintf( mantissaStr, sizeof( mantissaStr ), "%u%u", mantissaHigh, mantissaLow );
-        }
-        else
-        {
-            snprintf( mantissaStr, sizeof( mantissaStr ), "%u", mantissaLow );
-        }
-
-         mantissaStrLen = strlen( mantissaStr );
-    }
-
-    mantissaStrLen = strlen( mantissaStr );
-    pointPosition = mantissaStrLen + exponent;
-    
-    if ( pointPosition > mantissaStrLen )
-    {
-        if ( isNegative )
-        {
-            eCorection = mantissaStrLen - 1;
-            wholePartLen = 2;
-            pointPosition = 2;
-            isEUsed = 1;
-        }
-        else
-        {
-            eCorection = mantissaStrLen;
-            wholePartLen = 1;
-            pointPosition = 1;
-            isEUsed = 1;
-        }
-    }
-    else if ( pointPosition == mantissaStrLen )
-    {
-        wholePartLen = mantissaStrLen;
-    }
-    else
-    {
-        wholePartLen = pointPosition;
-    }
-    
-    strncpy( decimalStrWholePart, mantissaStr, wholePartLen );
-    fractionPartLen = mantissaStrLen - wholePartLen;
-    strncpy( decimalStrFractionPart, mantissaStr + pointPosition, fractionPartLen );
-    
-    if ( fractionPartLen > 0 && !isEUsed)
-    {
-        snprintf(
-            resultString, 
-            sizeof( mantissaStr ), 
-            "%s.%s", 
-            decimalStrWholePart, 
-            decimalStrFractionPart );
-    }
-    else if ( isEUsed )
-    {
-        snprintf( 
-            resultString, 
-            sizeof( mantissaStr ), 
-            "%s.%se%d", 
-            decimalStrWholePart, 
-            decimalStrFractionPart, 
-            exponent + eCorection - 1 );
-    }
-    else
-    {
-        snprintf( 
-            resultString, 
-            sizeof( mantissaStr ), 
-            "%s", 
-            decimalStrWholePart );
-    }
-    
-    return strdup( resultString );
+    return EXIT_FAILURE;
 }
 
-static int countTrailingZeros( const char * str ) 
+static int determineSign( const char * str ) 
 {
-    char count = 0;
-    char i = 0;
-    char length = strlen( str ) - 1;
-
-    char reversedStr[ MAX_STRING_LENGTH ] = { '\0' };
-    
-    for ( i = 0; i < length; i++ ) 
+    if ( str[ 0 ] == '-' ) 
     {
-        reversedStr[ i ] = str[ length - 1 - i ];
+        return true;
+    } 
+    else 
+    {
+        return false;
+    }
+}
+
+static int8_t parseMantissaInt( const char * str, int16_t * mantissaHighP, uint16_t * mantissaLowP )
+{
+    uint8_t index = 0;
+    bool isCarry = false;
+    uint8_t currentDigit = 0;
+    int16_t mantissaHigh = 0;
+    uint16_t mantissaLow = 0;
+    uint8_t decimalStrLen = strlen( str );
+
+    if ( str[ index ] == '-' )
+    {
+        index++;
     }
 
-    reversedStr[ length + 1 ] = '\0';
-    
-    for ( i = 0; i < length; i++ ) 
+    while ( str[ index ] >= '0' && str[ index ] <= '9'  && str[ index ] != '.' )
     {
-        if ( reversedStr[ i ] == '0' ) 
+        currentDigit = str[ index ] - '0';
+
+        if ( str[ index ] == '.' )
         {
-            count++;
+            index++;
+            continue;
         } 
-        else 
+        
+        if ( addDigitToMantissa( currentDigit, &mantissaHigh, &mantissaLow ) == EXIT_FAILURE ) 
         {
-            break;  
+            return EXIT_FAILURE;
+        }
+
+       if ( ++index >= decimalStrLen - 1 ) break;
+    }
+    
+    *mantissaHighP = mantissaHigh; 
+    *mantissaLowP = mantissaLow;
+
+    return EXIT_SUCCESS;
+}
+
+static int8_t parseMantissaFraction( const char * str, int16_t * mantissaHighP, uint16_t * mantissaLowP ) 
+{
+    uint8_t index = 0;
+    bool isCarry = false;
+    uint8_t currentDigit = 0;
+    int16_t mantissaHigh = 0;
+    uint16_t mantissaLow = 0;
+
+    // Find the decimal point
+    while ( str[ index ] != '\0' && str[ index ] != '.') 
+    {
+        index++;
+    }
+    
+    if ( str[ index ] == '.' ) 
+    {
+        index++; // Move past the decimal point
+    }
+
+    while ( str[ index ] >= '0' && str[ index ] <= '9' ) 
+    {
+        currentDigit = str[ index ] - '0';
+        
+        if ( addDigitToMantissa( currentDigit, &mantissaHigh, &mantissaLow ) == EXIT_FAILURE ) 
+        {
+            return EXIT_FAILURE;
+        }
+
+        index++;
+    }
+
+    *mantissaHighP = mantissaHigh;
+    *mantissaLowP = mantissaLow;
+
+    return EXIT_SUCCESS;
+}
+
+static int16_t calculateExponent( const char * str ) 
+{
+    int16_t exponent = 0;
+    uint8_t index = 0, decimalFound = 0, firstDigitFound = 0;
+
+    // Handle possible sign
+    if ( str[ index ] == '-' || str[ index ] == '+' ) 
+    {
+        index++;
+    }
+
+    // Count digits before decimal point for numbers >= 1
+    while ( str[ index ] != '\0' && str[ index ] != '.' ) 
+    {
+        if ( str[ index ] != '0' && str[ index ] != '+' && str[ index ] != '-' ) 
+        {
+            firstDigitFound = 1;
+        }
+        
+        if ( firstDigitFound )  
+        {
+
+            exponent++;
+        }
+        
+        index++;
+    }
+
+    if ( str[ index ] == '.' ) 
+    {
+        decimalFound = 1;
+    }
+
+    // Adjust for numbers >= 1 (since exponent is one less than the number of digits)
+    if ( exponent > 0 && decimalFound ) 
+    {
+        exponent--;
+        if ( exponent == 0 ) return exponent;
+    }
+    else if ( exponent > 0 )
+    {
+        exponent -= 2;
+    }
+
+    // Handle numbers < 1
+    if ( decimalFound && exponent == 0 ) 
+    {
+        exponent = -1;
+        index++; // Move past decimal point
+        while ( str[ index ] == '0' ) 
+        {
+            exponent--;
+            index++;
+        }
+    }
+
+    return exponent;
+}
+
+static int16_t parseExponent( const char * str ) 
+{
+    int16_t exponent = 0;
+    int8_t sign = 1; // 1 for positive, -1 for negative
+    uint8_t index = 0;
+
+    // Find 'e' or 'E'
+    while ( str[ index ] && str[ index ] != 'e' && str[ index ] != 'E' ) 
+    {
+        index++;
+    }
+
+    // If found, parse the exponent
+    if ( str[ index ] == 'e' || str[ index ] == 'E' ) 
+    {
+        index++; // Move past 'e' or 'E'
+
+        // Handle potential sign
+        if ( str[ index ] == '-' ) 
+        {
+            sign = -1;
+            index++;
+        } 
+        else if ( str[ index ] == '+' ) 
+        {
+            index++;
+        }
+
+        // Parse the number
+        while ( str[ index ] >= '0' && str[ index ] <= '9' ) 
+        {
+            exponent = exponent * 10 + ( str[ index ] - '0' );
+            index++;
+        }
+
+        exponent *= sign;
+    }
+
+    return exponent;
+}
+
+static int isScientific( const char * str ) 
+{
+    uint8_t index = 0;
+
+    while ( str[ index ] != '\0' ) 
+    {
+        if ( str[ index ] == 'e' || str[ index ] == 'E' ) 
+        {
+            return true;
+        }
+        
+        index++;
+    }
+
+    return false;
+}
+
+static int8_t addDigitToMantissa( uint8_t currentDigit, int16_t * mantissaHigh, uint16_t * mantissaLow )
+{
+    uint16_t oldLow = *mantissaLow;
+    bool isMultiplied = false;
+    *mantissaLow *= 10;
+
+    // Check for overflow during multiplication
+    if ( *mantissaLow / 10 != oldLow ) 
+    {
+        oldLow >>= 8;
+        oldLow *= 10;
+        oldLow = oldLow & 0xFF00;
+        oldLow >>= 8;
+        *mantissaHigh = *mantissaHigh * 10 + oldLow;
+        isMultiplied = true;
+    }
+
+    oldLow = *mantissaLow;
+    *mantissaLow += currentDigit;
+
+    // Check for overflow during addition
+    if ( *mantissaLow < oldLow ) 
+    {
+        ( *mantissaHigh )++;
+    }
+
+    if ( !isMultiplied )
+    {
+        *mantissaHigh *= 10;
+    }
+
+    // Check if mantissaHigh itself overflows
+    if ( *mantissaHigh > INT16_MAX / 10 ) 
+    {
+        return EXIT_FAILURE;
+    }
+    
+    return EXIT_SUCCESS;
+}
+
+// static uint8_t countTrailingZeros( const char * str ) 
+// {
+//     uint8_t count = 0;
+//     uint8_t i = 0;
+//     uint8_t length = strlen( str ) - 1;
+
+//     char reversedStr[ MAX_STRING_LENGTH ] = { '\0' };
+    
+//     for ( i = 0; i < length; i++ ) 
+//     {
+//         reversedStr[ i ] = str[ length - 1 - i ];
+//     }
+
+//     reversedStr[ length + 1 ] = '\0';
+    
+//     for ( i = 0; i < length; i++ ) 
+//     {
+//         if ( reversedStr[ i ] == '0' ) 
+//         {
+//             count++;
+//         } 
+//         else 
+//         {
+//             break;  
+//         }
+//     }
+
+//     return count;
+// }
+
+// static void removeTrailingZeros( const char * str, int16_t * mantissaHigh, uint16_t * mantissaLow )
+// {
+//     uint8_t numberOfZeros = countTrailingZeros( str );
+//     uint8_t index = 0;
+//     uint8_t reminder = 0;
+
+//     for ( ; index < numberOfZeros; index++ )
+//     {
+//         reminder = 0;
+        
+//         if ( *mantissaHigh != 0 )
+//         {
+//             reminder = *mantissaHigh % 10;
+//             *mantissaHigh /= 10;
+//             *mantissaLow /= 10;
+//             *mantissaLow += reminder * DIGIT_PATTERN;
+//         }
+//         else
+//         {
+//             *mantissaLow /= 10;
+//         }
+//     }
+// }
+
+static uint8_t countBinaryDigits( uint16_t mantissaHigh, uint16_t mantissaLow ) 
+{
+    uint8_t count = 0;
+
+    if ( mantissaHigh > 0) 
+    {
+        // Count digits in mantissaHigh
+        while ( mantissaHigh > 0 ) 
+        {
+            mantissaHigh /= 2;
+            count++;
+        }
+        // Add the bits of the lower part
+        count += 16; // As mantissaHigh is non-zero, mantissaLow contributes 16 bits
+    } 
+    else 
+    {
+        // Count digits in mantissaLow if mantissaHigh is zero
+        while ( mantissaLow > 0 ) 
+        {
+            mantissaLow /= 2;
+            count++;
         }
     }
 
     return count;
+}
+
+static uint8_t calculateMBFPositiveExponent( int16_t mantissaIntHigh, uint16_t mantissaIntLow )
+{
+    uint8_t result = 0;
+
+    if ( mantissaIntHigh != 0 || mantissaIntLow != 0 )
+    { 
+        result = countBinaryDigits( mantissaIntHigh, mantissaIntLow );
+        result += 128;
+    }
+
+    return result;
+}
+
+static void createMBFInt( int16_t mantissaIntHigh, uint16_t mantissaIntLow, int isNegative, uint8_t * ma4, uint8_t * ma3, uint8_t * ma2, uint8_t * ma1 )
+{
+    printf( "3 [%04X][%04x]\n", mantissaIntHigh, mantissaIntLow );
+
+    if ( mantissaIntHigh == 0 && mantissaIntLow == 0 )
+    {
+        *ma4 = 0;
+        *ma3 = 0;
+        *ma2 = 0;
+        *ma1 = 0;
+
+        return; 
+    } 
+
+    *ma4 = ( uint8_t )( mantissaIntHigh >> 8 );
+    *ma3 = ( uint8_t )( mantissaIntHigh & 0x00FF );
+    *ma2 = ( uint8_t )( mantissaIntLow >> 8 );
+    *ma1 = ( uint8_t )( mantissaIntLow & 0x00FF ); 
+
+    printf( "[%02X][%02X][%02X][%02X]\n", *ma4,*ma3, *ma2, *ma1 );
+
+    while ( ( *ma4 & 0x80 ) == 0 && ( *ma4 != 0 || *ma3 != 0 || *ma2 != 0 || *ma1 != 0 ) ) 
+    {
+        *ma4 <<= 1;
+        if ( *ma3 & 0x80 ) 
+        {
+            *ma4 |= 0x01;
+        }
+
+        *ma3 <<= 1;
+        if ( *ma2 & 0x80 ) 
+        {
+            *ma3 |= 0x01;
+        }
+
+        *ma2 <<= 1;
+        if ( *ma1 & 0x80 ) 
+        {
+            *ma2 |= 0x01;
+        }
+
+        *ma1 <<= 1;
+    }
+
+    *ma4 &= 0x7F;
+    printf( "2 isNegative[%d]\n", isNegative);
+    if ( isNegative ) *ma4 |= 0x80; 
 }

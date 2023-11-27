@@ -9,35 +9,36 @@
 
 int main ( void )
 {   
-   Float floatNumber;
-   char inputStriung[ MAX_NUMBER_LENGTH ] = { '\0' };
-   char * outputString = NULL;
+   Float floatNumber1 = ( uint8_t * ) calloc( FP_SIZE, sizeof( uint8_t ) );
+
+   if ( floatNumber1 == NULL )
+   {
+      puts( "Failed to alloc memory" );
+      return EXIT_FAILURE;
+   }
+
+   char inputString[ MAX_NUMBER_LENGTH ] = { '\0' };
 
    setUpScreen();
 
-   fgets( inputStriung, MAX_NUMBER_LENGTH, stdin );
-   floatNumber = FP_createFromString( inputStriung );
+   fgets( inputString, MAX_NUMBER_LENGTH, stdin );
+   if ( FP_createFromString( inputString, floatNumber1 ) == EXIT_FAILURE )
+   {
+      puts( "FP creating failed!" );
+      return EXIT_FAILURE;
+   }
 
    printf( 
-      "MantissaL=0x%04X MantissaH=0x%04X Exponent=0x%04X\n",
-      floatNumber[ MANTISSA_LOW ], 
-      floatNumber[ MANTISSA_HIGH ], 
-      floatNumber[ EXPONENT ] );
-   printf( 
-      "MantissaL=%u MantissaH=%d Exponent=%d\n",
-      floatNumber[ MANTISSA_LOW ], 
-      floatNumber[ MANTISSA_HIGH ],
-      floatNumber[ EXPONENT ] );
+      "[%02X][%02X][%02X][%02X][%02X]\n",
+      floatNumber1[ EXPONENT ],
+      floatNumber1[ MANTISSA_4 ],
+      floatNumber1[ MANTISSA_3 ],
+      floatNumber1[ MANTISSA_2 ],
+      floatNumber1[ MANTISSA_1 ]);
 
-   puts( "FP_toString result:" );
-   outputString = FP_toString( floatNumber );
-   puts( outputString );
-   
    cgetc();  
 
-   FP_delete( floatNumber );
-   
-   if ( outputString ) free( outputString );
+   FP_delete( floatNumber1 );
 
    resetDefaultScreen();
    
