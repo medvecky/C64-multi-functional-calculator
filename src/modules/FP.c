@@ -8,10 +8,7 @@
 
 int8_t FP_createFromString( const char * decimalStr, Float floatNumber )
 {
-    uint16_t mantissaLowInt = 0;
-    int16_t mantissaHighInt = 0;
-    uint16_t mantissaLowFraction = 0;
-    int16_t mantissaHighFraction = 0;
+    uint32_t mantissa = 0;
     uint8_t exponentMBF = 0;
     uint8_t ma4 = 0;
     uint8_t ma3 = 0;
@@ -32,32 +29,22 @@ int8_t FP_createFromString( const char * decimalStr, Float floatNumber )
     {
         exponent = calculateExponent( decimalStr );
         
-        if ( parseMantissaInt( decimalStr, &mantissaHighInt, &mantissaLowInt ) == EXIT_FAILURE )
+        if ( parseMantissaInt( decimalStr, &mantissa ) == EXIT_FAILURE )
         {
             return EXIT_FAILURE;
         }
-
-        // if ( parseMantissaFraction( decimalStr, &mantissaHighFraction, &mantissaLowFraction ) == EXIT_FAILURE )
-        // {
-        //     return EXIT_FAILURE;
-        // }
     }
-
+    
     if ( exponent >= 0 )
     {
-        exponentMBF = calculateMBFPositiveExponent( mantissaHighInt, mantissaLowInt );
+        exponentMBF = calculateMBFPositiveExponent( mantissa );
     }
     else
     {
         return EXIT_FAILURE;
     }
     
-    printf( "1 [%d][%d]\n", mantissaHighInt, mantissaLowInt );
-    printf( "2 [%04X][%04x]\n", mantissaHighInt, mantissaLowInt );
-
-    printf( "IsNegative[%d]\n", isNegative );
-
-    createMBFInt( mantissaHighInt, mantissaLowInt, isNegative, &ma4, &ma3, &ma2, &ma1 );
+    createMBFInt( mantissa, isNegative, &ma4, &ma3, &ma2, &ma1 );
 
     floatNumber[ EXPONENT ] = exponentMBF;
     floatNumber[ MANTISSA_4 ] = ma4;
@@ -75,7 +62,29 @@ void FP_delete( Float floatNumber )
 
 int8_t FP_toString( const Float value, char * resultString )
 {
-    return EXIT_FAILURE;
+    uint8_t ma4 = value[ MANTISSA_4 ];
+    uint8_t ma3 = value[ MANTISSA_3 ];
+    uint8_t ma2 = value[ MANTISSA_2 ];
+    uint8_t ma1 = value[ MANTISSA_1 ];
+    uint8_t shiftCount = MAX_NUMBER_SIZE_BITS - ( value[ EXPONENT ] - 128 );
+    int16_t mantissaHigh = 0;
+    uint16_t mantissaLow = 0;
+    bool isNegative = ma4 & 0x80;
+    ma4 |= 0x80;
+
+    mbfMantissaShiftRight( &ma4, &ma3, &ma2, &ma1, shiftCount );
+
+    mantissaLow = ma2;
+    mantissaLow = mantissaLow << 8;
+    mantissaLow += ma1;
+
+    mantissaHigh = ma4;
+    mantissaHigh = mantissaHigh << 8;
+    mantissaHigh += ma3;
+
+    createDecimalString( mantissaHigh, mantissaLow, isNegative, resultString );
+
+    return EXIT_SUCCESS;
 }
 
 static int determineSign( const char * str ) 
@@ -90,13 +99,11 @@ static int determineSign( const char * str )
     }
 }
 
-static int8_t parseMantissaInt( const char * str, int16_t * mantissaHighP, uint16_t * mantissaLowP )
+static int8_t parseMantissaInt( const char * str, uint32_t * mantissa )
 {
     uint8_t index = 0;
     bool isCarry = false;
     uint8_t currentDigit = 0;
-    int16_t mantissaHigh = 0;
-    uint16_t mantissaLow = 0;
     uint8_t decimalStrLen = strlen( str );
 
     if ( str[ index ] == '-' )
@@ -114,53 +121,13 @@ static int8_t parseMantissaInt( const char * str, int16_t * mantissaHighP, uint1
             continue;
         } 
         
-        if ( addDigitToMantissa( currentDigit, &mantissaHigh, &mantissaLow ) == EXIT_FAILURE ) 
+        if ( addDigitToMantissa( currentDigit, mantissa ) == EXIT_FAILURE ) 
         {
             return EXIT_FAILURE;
         }
 
        if ( ++index >= decimalStrLen - 1 ) break;
     }
-    
-    *mantissaHighP = mantissaHigh; 
-    *mantissaLowP = mantissaLow;
-
-    return EXIT_SUCCESS;
-}
-
-static int8_t parseMantissaFraction( const char * str, int16_t * mantissaHighP, uint16_t * mantissaLowP ) 
-{
-    uint8_t index = 0;
-    bool isCarry = false;
-    uint8_t currentDigit = 0;
-    int16_t mantissaHigh = 0;
-    uint16_t mantissaLow = 0;
-
-    // Find the decimal point
-    while ( str[ index ] != '\0' && str[ index ] != '.') 
-    {
-        index++;
-    }
-    
-    if ( str[ index ] == '.' ) 
-    {
-        index++; // Move past the decimal point
-    }
-
-    while ( str[ index ] >= '0' && str[ index ] <= '9' ) 
-    {
-        currentDigit = str[ index ] - '0';
-        
-        if ( addDigitToMantissa( currentDigit, &mantissaHigh, &mantissaLow ) == EXIT_FAILURE ) 
-        {
-            return EXIT_FAILURE;
-        }
-
-        index++;
-    }
-
-    *mantissaHighP = mantissaHigh;
-    *mantissaLowP = mantissaLow;
 
     return EXIT_SUCCESS;
 }
@@ -224,46 +191,7 @@ static int16_t calculateExponent( const char * str )
     return exponent;
 }
 
-static int16_t parseExponent( const char * str ) 
-{
-    int16_t exponent = 0;
-    int8_t sign = 1; // 1 for positive, -1 for negative
-    uint8_t index = 0;
 
-    // Find 'e' or 'E'
-    while ( str[ index ] && str[ index ] != 'e' && str[ index ] != 'E' ) 
-    {
-        index++;
-    }
-
-    // If found, parse the exponent
-    if ( str[ index ] == 'e' || str[ index ] == 'E' ) 
-    {
-        index++; // Move past 'e' or 'E'
-
-        // Handle potential sign
-        if ( str[ index ] == '-' ) 
-        {
-            sign = -1;
-            index++;
-        } 
-        else if ( str[ index ] == '+' ) 
-        {
-            index++;
-        }
-
-        // Parse the number
-        while ( str[ index ] >= '0' && str[ index ] <= '9' ) 
-        {
-            exponent = exponent * 10 + ( str[ index ] - '0' );
-            index++;
-        }
-
-        exponent *= sign;
-    }
-
-    return exponent;
-}
 
 static int isScientific( const char * str ) 
 {
@@ -282,146 +210,55 @@ static int isScientific( const char * str )
     return false;
 }
 
-static int8_t addDigitToMantissa( uint8_t currentDigit, int16_t * mantissaHigh, uint16_t * mantissaLow )
+static int8_t addDigitToMantissa( uint8_t currentDigit, uint32_t * mantissa )
 {
-    uint16_t oldLow = *mantissaLow;
-    bool isMultiplied = false;
-    *mantissaLow *= 10;
-
-    // Check for overflow during multiplication
-    if ( *mantissaLow / 10 != oldLow ) 
-    {
-        oldLow >>= 8;
-        oldLow *= 10;
-        oldLow = oldLow & 0xFF00;
-        oldLow >>= 8;
-        *mantissaHigh = *mantissaHigh * 10 + oldLow;
-        isMultiplied = true;
-    }
-
-    oldLow = *mantissaLow;
-    *mantissaLow += currentDigit;
-
-    // Check for overflow during addition
-    if ( *mantissaLow < oldLow ) 
-    {
-        ( *mantissaHigh )++;
-    }
-
-    if ( !isMultiplied )
-    {
-        *mantissaHigh *= 10;
-    }
-
-    // Check if mantissaHigh itself overflows
-    if ( *mantissaHigh > INT16_MAX / 10 ) 
+    if ( ( *mantissa / MANTISSA_TRESHOLD ) > 0 )
     {
         return EXIT_FAILURE;
     }
-    
+   
+    *mantissa = *mantissa * 10 + currentDigit;
+
     return EXIT_SUCCESS;
 }
 
-// static uint8_t countTrailingZeros( const char * str ) 
-// {
-//     uint8_t count = 0;
-//     uint8_t i = 0;
-//     uint8_t length = strlen( str ) - 1;
 
-//     char reversedStr[ MAX_STRING_LENGTH ] = { '\0' };
-    
-//     for ( i = 0; i < length; i++ ) 
-//     {
-//         reversedStr[ i ] = str[ length - 1 - i ];
-//     }
-
-//     reversedStr[ length + 1 ] = '\0';
-    
-//     for ( i = 0; i < length; i++ ) 
-//     {
-//         if ( reversedStr[ i ] == '0' ) 
-//         {
-//             count++;
-//         } 
-//         else 
-//         {
-//             break;  
-//         }
-//     }
-
-//     return count;
-// }
-
-// static void removeTrailingZeros( const char * str, int16_t * mantissaHigh, uint16_t * mantissaLow )
-// {
-//     uint8_t numberOfZeros = countTrailingZeros( str );
-//     uint8_t index = 0;
-//     uint8_t reminder = 0;
-
-//     for ( ; index < numberOfZeros; index++ )
-//     {
-//         reminder = 0;
-        
-//         if ( *mantissaHigh != 0 )
-//         {
-//             reminder = *mantissaHigh % 10;
-//             *mantissaHigh /= 10;
-//             *mantissaLow /= 10;
-//             *mantissaLow += reminder * DIGIT_PATTERN;
-//         }
-//         else
-//         {
-//             *mantissaLow /= 10;
-//         }
-//     }
-// }
-
-static uint8_t countBinaryDigits( uint16_t mantissaHigh, uint16_t mantissaLow ) 
+static uint8_t countBinaryDigits( uint32_t mantissa ) 
 {
     uint8_t count = 0;
 
-    if ( mantissaHigh > 0) 
+    if ( mantissa > 0) 
     {
         // Count digits in mantissaHigh
-        while ( mantissaHigh > 0 ) 
+        while ( mantissa > 0 ) 
         {
-            mantissaHigh /= 2;
+            mantissa /= 2;
             count++;
         }
-        // Add the bits of the lower part
-        count += 16; // As mantissaHigh is non-zero, mantissaLow contributes 16 bits
     } 
-    else 
-    {
-        // Count digits in mantissaLow if mantissaHigh is zero
-        while ( mantissaLow > 0 ) 
-        {
-            mantissaLow /= 2;
-            count++;
-        }
-    }
 
     return count;
 }
 
-static uint8_t calculateMBFPositiveExponent( int16_t mantissaIntHigh, uint16_t mantissaIntLow )
+static uint8_t calculateMBFPositiveExponent( uint32_t mantissa )
 {
     uint8_t result = 0;
 
-    if ( mantissaIntHigh != 0 || mantissaIntLow != 0 )
+    if ( mantissa != 0 )
     { 
-        result = countBinaryDigits( mantissaIntHigh, mantissaIntLow );
+        result = countBinaryDigits( mantissa );
         result += 128;
     }
 
     return result;
 }
 
-static void createMBFInt( int16_t mantissaIntHigh, uint16_t mantissaIntLow, int isNegative, uint8_t * ma4, uint8_t * ma3, uint8_t * ma2, uint8_t * ma1 )
+static void createMBFInt( uint32_t mantissa, int isNegative, uint8_t * ma4, uint8_t * ma3, uint8_t * ma2, uint8_t * ma1 )
 {
-    printf( "3 [%04X][%04x]\n", mantissaIntHigh, mantissaIntLow );
+    uint16_t mantissaHigh = 0;
+    uint16_t mantissaLow = 0;
 
-    if ( mantissaIntHigh == 0 && mantissaIntLow == 0 )
+    if ( mantissa == 0 )
     {
         *ma4 = 0;
         *ma3 = 0;
@@ -431,12 +268,14 @@ static void createMBFInt( int16_t mantissaIntHigh, uint16_t mantissaIntLow, int 
         return; 
     } 
 
-    *ma4 = ( uint8_t )( mantissaIntHigh >> 8 );
-    *ma3 = ( uint8_t )( mantissaIntHigh & 0x00FF );
-    *ma2 = ( uint8_t )( mantissaIntLow >> 8 );
-    *ma1 = ( uint8_t )( mantissaIntLow & 0x00FF ); 
+    mantissaLow = mantissa;
+    mantissa >>= 16;
+    mantissaHigh = mantissa; 
 
-    printf( "[%02X][%02X][%02X][%02X]\n", *ma4,*ma3, *ma2, *ma1 );
+    *ma4 = ( uint8_t )( mantissaHigh >> 8 );
+    *ma3 = ( uint8_t )( mantissaHigh & 0x00FF );
+    *ma2 = ( uint8_t )( mantissaLow >> 8 );
+    *ma1 = ( uint8_t )( mantissaLow & 0x00FF ); 
 
     while ( ( *ma4 & 0x80 ) == 0 && ( *ma4 != 0 || *ma3 != 0 || *ma2 != 0 || *ma1 != 0 ) ) 
     {
@@ -462,6 +301,65 @@ static void createMBFInt( int16_t mantissaIntHigh, uint16_t mantissaIntLow, int 
     }
 
     *ma4 &= 0x7F;
-    printf( "2 isNegative[%d]\n", isNegative);
     if ( isNegative ) *ma4 |= 0x80; 
+}
+
+static void mbfMantissaShiftRight( uint8_t * ma4, uint8_t * ma3, uint8_t * ma2, uint8_t * ma1, uint8_t shiftCount ) 
+{
+    uint8_t index = 0;
+
+    for ( index = 0; index < shiftCount; index++ ) 
+    {
+        *ma1 >>= 1;
+        if ( *ma2 & 0x01 ) 
+        {
+            *ma1 |= 0x80;
+        }
+
+        *ma2 >>= 1;
+        if ( *ma3 & 0x01 ) 
+        {
+            *ma2 |= 0x80;
+        }
+
+        *ma3 >>= 1;
+        if ( *ma4 & 0x01 ) 
+        {
+            *ma3 |= 0x80;
+        }
+
+        *ma4 >>= 1;
+    }
+}
+
+static void createDecimalString( uint16_t mantissaHigh, uint16_t mantissaLow, int8_t isNegative, char * resultString  )
+{
+    uint32_t result = 0;
+
+    if ( mantissaHigh > 0 )
+    {
+        result = mantissaHigh;
+        result <<= 16;
+        result |= mantissaLow;
+        
+        if ( isNegative )
+        {
+            snprintf( resultString, MAX_E_STRING_LENGTH, "-%ld", result  );
+        }
+        else
+        {
+            snprintf( resultString, MAX_E_STRING_LENGTH, "%ld", result  );
+        }
+    }
+    else
+    {
+        if ( isNegative )
+        {
+            snprintf( resultString, MAX_E_STRING_LENGTH, "-%d", mantissaLow  );
+        }
+        else
+        {
+            snprintf( resultString, MAX_E_STRING_LENGTH, "%d", mantissaLow  );
+        }
+    }
 }
